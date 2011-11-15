@@ -47,7 +47,7 @@ typedef InputInfoPtr LocalDevicePtr;
 
 static void pointer_control(DeviceIntPtr dev, PtrCtrl *ctrl)
 {
-#if DEBUG_DRIVER
+#ifdef DEBUG_DRIVER
 	xf86Msg(X_INFO, "pointer_control\n");
 #endif
 }
@@ -201,13 +201,13 @@ static void handle_gestures(LocalDevicePtr local,
 			continue;
 		if (GETBIT(gs->buttons, i)) {
 			xf86PostButtonEvent(local->dev, FALSE, i+1, 1, 0, 0);
-#if DEBUG_DRIVER
+#ifdef DEBUG_DRIVER
 			xf86Msg(X_INFO, "button %d down\n", i+1);
 #endif
 		}
 		else {
 			xf86PostButtonEvent(local->dev, FALSE, i+1, 0, 0, 0);
-#if DEBUG_DRIVER
+#ifdef DEBUG_DRIVER
 			xf86Msg(X_INFO, "button %d up\n", i+1);
 #endif
 		}
@@ -221,11 +221,19 @@ static void handle_gestures(LocalDevicePtr local,
 /* called for each full received packet from the touchpad */
 static void read_input(LocalDevicePtr local)
 {
+	int delay;
 	struct MTouch *mt = local->private;
+
 	while (read_packet(mt, local->fd) > 0)
 		handle_gestures(local, &mt->gs);
-	if (has_delayed(mt, local->fd))
-		handle_gestures(local, &mt->gs);
+	do {
+		delay = has_delayed(mt, local->fd);
+		if (delay != GS_DELAY_NONE)
+			handle_gestures(local, &mt->gs);
+#ifdef DEBUG_DRIVER
+		xf86Msg(X_INFO, "read_input: has_delayed returned %d\n", delay);
+#endif
+	} while (delay == GS_DELAY_REPEAT);
 }
 
 static Bool device_control(DeviceIntPtr dev, int mode)

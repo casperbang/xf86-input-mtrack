@@ -42,7 +42,9 @@ static void finish_packet(struct HWState *s, const struct Capabilities *caps,
 		if (!caps->has_abs[MTDEV_WIDTH_MINOR])
 			s->data[i].width_minor = s->data[i].width_major;
 	}
+	mstime_t oldtime = s->evtime;
 	s->evtime = syn->time.tv_usec / ms + syn->time.tv_sec * ms;
+	s->deltat = s->evtime - oldtime;
 }
 
 static int read_event(struct HWState *s, const struct Capabilities *caps,

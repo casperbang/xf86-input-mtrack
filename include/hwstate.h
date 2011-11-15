@@ -39,6 +39,7 @@ struct HWState {
 	bitmask_t slot;
 	bitmask_t button;
 	mstime_t evtime;
+	mstime_t deltat;
 	int max_x, max_y;
 };
 

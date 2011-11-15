@@ -28,18 +28,25 @@
 #include "hwstate.h"
 #include "mtstate.h"
 
+#define GS_DECEL_TICK 100
+
 #define GS_TAP 0
 #define GS_BUTTON 1
 
 #define GS_NONE 0
 #define GS_MOVE 1
 #define GS_SCROLL 2
-#define GS_SWIPE 3
-#define GS_SCALE 4
-#define GS_ROTATE 5
-#define GS_DRAG_READY 6
-#define GS_DRAG_WAIT 7
-#define GS_DRAG_ACTIVE 8
+#define GS_SWIPE3 3
+#define GS_SWIPE4 4
+#define GS_SCALE 5
+#define GS_ROTATE 6
+#define GS_DRAG_READY 7
+#define GS_DRAG_WAIT 8
+#define GS_DRAG_ACTIVE 9
+
+#define GS_DELAY_NONE 0
+#define GS_DELAY_UPDATE 1
+#define GS_DELAY_REPEAT 2
 
 struct Gestures {
 	/* Taps, physical buttons, and gestures will trigger
@@ -56,15 +63,20 @@ struct Gestures {
 	/* Internal state tracking. Not for direct access.
 	 */
 	int button_emulate;
-	int button_delayed;
-	mstime_t button_delayed_time;
-	int button_delayed_ms;
+
+	int delayed_click_button;
+	mstime_t delayed_click_wake;
+	int delayed_decel_speed;
+	bitmask_t delayed_decel_hwbutton;
+	mstime_t delayed_decel_wake;
+	int delayed_sleep;
 
 	mstime_t tap_time_down;
 	int tap_touching;
 	int tap_released;
 	int move_type;
 	int move_dist;
+	int move_speed;
 	int move_dir;
 	int move_drag;
 	int move_drag_dx;
@@ -81,6 +93,9 @@ void gestures_extract(struct Gestures* gs,
 			const struct HWState* hs,
 			struct MTState* ms);
 int gestures_delayed(struct Gestures* gs,
+			const struct MConfig* cfg,
+			const struct HWState* hs,
+			struct MTState* ms,
 			struct mtdev* dev, int fd);
 
 #endif

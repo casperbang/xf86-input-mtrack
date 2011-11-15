@@ -81,6 +81,6 @@ int read_packet(struct MTouch *mt, int fd)
 
 int has_delayed(struct MTouch *mt, int fd)
 {
-	return gestures_delayed(&mt->gs, &mt->dev, fd);
+	return gestures_delayed(&mt->gs, &mt->cfg, &mt->hs, &mt->state, &mt->dev, fd);
 }
 
