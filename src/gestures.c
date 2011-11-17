@@ -755,7 +755,7 @@ static int delayed_click_update(struct Gestures* gs,
 		trigger_button_up(gs, gs->delayed_click_button);
 
 		gs->delayed_click_wake = 0;
-		//gs->delayed_click_button = -1;
+		gs->delayed_click_button = -1;
 		return -1;
 	}
 #ifdef DEBUG_GESTURES
@@ -865,7 +865,7 @@ int gestures_delayed(struct Gestures* gs,
 			struct mtdev* dev, int fd)
 {
 	int res = GS_DELAY_NONE;
-	if (gs->delayed_click_button == -1 && gs->delayed_decel_speed == 0)
+	if (gs->delayed_sleep == -1)
 		return res;
 
 	if (mtdev_empty(dev) && mtdev_idle(dev, fd, gs->delayed_sleep)) {
