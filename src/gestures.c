@@ -880,7 +880,7 @@ int gestures_delayed(struct Gestures* gs,
 			struct MTState* ms,
 			struct mtdev* dev, int fd)
 {
-	if (mtdev_empty(dev) && mtdev_idle(dev, fd, gs->delayed_sleep))
+	if (gs->delayed_sleep != -1 && mtdev_empty(dev) && mtdev_idle(dev, fd, gs->delayed_sleep))
 		return delayed_update(gs, cfg, hs, ms);
 	else
 		return GS_DELAY_NONE;
