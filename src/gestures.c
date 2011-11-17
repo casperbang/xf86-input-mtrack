@@ -739,13 +739,15 @@ static void dragging_update(struct Gestures* gs,
 }
 
 static int delayed_click_update(struct Gestures* gs,
-			const struct HWState* hs)
+			const struct HWState* hs,
+			int* delay_sleep)
 {
 	if (gs->delayed_click_button == -1) {
 #ifdef DEBUG_GESTURES
 		xf86Msg(X_INFO, "delayed_click_update: no button, skipping\n");
 #endif
-		return -1;
+		*delay_sleep = -1;
+		return 0;
 	}
 
 	if (hs->evtime >= gs->delayed_click_wake) {
@@ -756,23 +758,28 @@ static int delayed_click_update(struct Gestures* gs,
 
 		gs->delayed_click_wake = 0;
 		gs->delayed_click_button = -1;
-		return -1;
+		*delay_sleep = -1;
+		return 1;
 	}
+	else {
 #ifdef DEBUG_GESTURES
-	else
 		xf86Msg(X_INFO, "delayed_click_update: in delay, not triggering\n");
 #endif
-	
-	return gs->delayed_click_wake - hs->evtime;
+		*delay_sleep = gs->delayed_click_wake - hs->evtime;
+		return 0;
+	}
 }
 
 static int delayed_decel_update(struct Gestures* gs,
 			const struct MConfig* cfg,
 			const struct HWState* hs,
-			const struct MTState* ms)
+			const struct MTState* ms,
+			int* delay_sleep)
 {
-	if (gs->delayed_decel_speed == 0)
-		return -1;
+	if (gs->delayed_decel_speed == 0) {
+		*delay_sleep = -1;
+		return 0;
+	}
 
 	if (hs->evtime >= gs->delayed_decel_wake) {
 		int i, stop = 0;
@@ -801,7 +808,8 @@ static int delayed_decel_update(struct Gestures* gs,
 #endif
 			gs->delayed_decel_wake = 0;
 			gs->delayed_decel_speed = 0;
-			return -1;
+			*delay_sleep = -1;
+			return 0;
 		}
 
 #ifdef DEBUG_GESTURES
@@ -818,17 +826,18 @@ static int delayed_decel_update(struct Gestures* gs,
 		gs->delayed_decel_wake = hs->evtime + GS_DECEL_TICK;
 	}
 
-	return gs->delayed_decel_wake - hs->evtime;
+	*delay_sleep = gs->delayed_decel_wake - hs->evtime;
+	return 1;
 }
 
-static void delayed_update(struct Gestures* gs,
+static int delayed_update(struct Gestures* gs,
 			const struct MConfig* cfg,
 			const struct HWState* hs,
 			const struct MTState* ms)
 {
-	int click, decel;
-	click = delayed_click_update(gs, hs);
-	decel = delayed_decel_update(gs, cfg, hs, ms);
+	int click, decel, cont;
+	cont = delayed_click_update(gs, hs, &click) +
+		delayed_decel_update(gs, cfg, hs, ms, &decel);
 
 	if (click == -1)
 		gs->delayed_sleep = decel;
@@ -839,6 +848,8 @@ static void delayed_update(struct Gestures* gs,
 #ifdef DEBUG_GESTURES
 	xf86Msg(X_INFO, "delayed_update: sleeping for %d\n", gs->delayed_sleep);
 #endif
+
+	return cont > 0 ? 1 : 0;
 }
 
 void gestures_init(struct Gestures* gs)
