@@ -24,7 +24,7 @@ XORG_MACROS_VERSION(1.8)
 XORG_DEFAULT_OPTIONS
 
 # Checks for libraries.
-AC_CHECK_LIB([mtdev], [mtdev_open])
+AC_SEARCH_LIBS([mtdev_open], [mtdev], [], AC_MSG_ERROR(could not find mtdev))
 
 # Obtain compiler/linker options for the mtrack driver dependencies
 PKG_CHECK_MODULES(XORG, [xorg-server >= 1.7] xproto inputproto $REQUIRED_MODULES)
