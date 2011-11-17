@@ -835,9 +835,9 @@ static int delayed_update(struct Gestures* gs,
 			const struct HWState* hs,
 			const struct MTState* ms)
 {
-	int click, decel, cont;
-	cont = delayed_click_update(gs, hs, &click) +
-		delayed_decel_update(gs, cfg, hs, ms, &decel);
+	int click, decel, click_res, decel_res;
+	click_res = delayed_click_update(gs, hs, &click);
+	decel_res = delayed_decel_update(gs, cfg, hs, ms, &decel);
 
 	if (click == -1)
 		gs->delayed_sleep = decel;
@@ -849,7 +849,12 @@ static int delayed_update(struct Gestures* gs,
 	xf86Msg(X_INFO, "delayed_update: sleeping for %d\n", gs->delayed_sleep);
 #endif
 
-	return cont > 0 ? 1 : 0;
+	if (decel_res)
+		return GS_DELAY_REPEAT;
+	else if (click_res)
+		return GS_DELAY_UPDATE;
+	else
+		return GS_DELAY_NONE;
 }
 
 void gestures_init(struct Gestures* gs)
@@ -875,14 +880,8 @@ int gestures_delayed(struct Gestures* gs,
 			struct MTState* ms,
 			struct mtdev* dev, int fd)
 {
-	int res = GS_DELAY_NONE;
-	if (gs->delayed_sleep == -1)
-		return res;
-
-	if (mtdev_empty(dev) && mtdev_idle(dev, fd, gs->delayed_sleep)) {
-		delayed_update(gs, cfg, hs, ms);
-		res = gs->delayed_decel_speed == 0 ? GS_DELAY_UPDATE : GS_DELAY_REPEAT;
-	}
-
-	return res;
+	if (mtdev_empty(dev) && mtdev_idle(dev, fd, gs->delayed_sleep))
+		return delayed_update(gs, cfg, hs, ms);
+	else
+		return GS_DELAY_NONE;
 }
