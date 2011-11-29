@@ -759,15 +759,14 @@ static int delayed_click_update(struct Gestures* gs,
 		gs->delayed_click_wake = 0;
 		gs->delayed_click_button = -1;
 		*delay_sleep = -1;
-		return 1;
 	}
 	else {
 #ifdef DEBUG_GESTURES
 		xf86Msg(X_INFO, "delayed_click_update: in delay, not triggering\n");
 #endif
 		*delay_sleep = gs->delayed_click_wake - hs->evtime;
-		return 0;
 	}
+	return 1;
 }
 
 static int delayed_decel_update(struct Gestures* gs,
@@ -777,21 +776,22 @@ static int delayed_decel_update(struct Gestures* gs,
 			int* delay_sleep)
 {
 	if (gs->delayed_decel_speed == 0) {
+#ifdef DEBUG_GESTURES
+		xf86Msg(X_INFO, "delayed_decel_update: no speed, skipping\n");
+#endif
 		*delay_sleep = -1;
 		return 0;
 	}
 
 	if (hs->evtime >= gs->delayed_decel_wake) {
+#ifdef DEBUG_GESTURES
+		xf86Msg(X_INFO, "delayed_decel_update: delay expired, decelerating from\n", gs->delayed_decel_speed);
+#endif
 		int i, stop = 0;
 		foreach_bit(i, ms->touch_used) {
 			stop = 1;
 			break;
 		}
-
-#ifdef DEBUG_GESTURES
-		xf86Msg(X_INFO, "delayed_decel_update: speed is %d\n",
-			gs->delayed_decel_speed);
-#endif
 
 		if (gs->move_type == GS_SCROLL && cfg->scroll_coast_decel > 0)
 			gs->delayed_decel_speed -= cfg->scroll_coast_decel;
@@ -804,26 +804,27 @@ static int delayed_decel_update(struct Gestures* gs,
 
 		if (stop || gs->delayed_decel_hwbutton != hs->button || gs->delayed_decel_speed <= 0) {
 #ifdef DEBUG_GESTURES
-			xf86Msg(X_INFO, "delayed_decel_update: stopping decel\n");
+			xf86Msg(X_INFO, "delayed_decel_update: speed is zero, stopping decel\n");
 #endif
 			gs->delayed_decel_wake = 0;
 			gs->delayed_decel_speed = 0;
 			*delay_sleep = -1;
 			return 0;
 		}
-
+		else {
 #ifdef DEBUG_GESTURES
-		xf86Msg(X_INFO, "delayed_decel_update: triggering decel, speed %d\n", gs->delayed_decel_speed);
+			xf86Msg(X_INFO, "delayed_decel_update: triggering decel, speed %d\n", gs->delayed_decel_speed);
 #endif
 
-		if (gs->move_type == GS_SCROLL)
-			trigger_scroll(gs, cfg, hs, gs->delayed_decel_speed, gs->move_dir);
-		if (gs->move_type == GS_SWIPE3)
-			trigger_swipe3(gs, cfg, hs, gs->delayed_decel_speed, gs->move_dir);
-		if (gs->move_type == GS_SWIPE4)
-			trigger_swipe4(gs, cfg, hs, gs->delayed_decel_speed, gs->move_dir);
+			if (gs->move_type == GS_SCROLL)
+				trigger_scroll(gs, cfg, hs, gs->delayed_decel_speed, gs->move_dir);
+			if (gs->move_type == GS_SWIPE3)
+				trigger_swipe3(gs, cfg, hs, gs->delayed_decel_speed, gs->move_dir);
+			if (gs->move_type == GS_SWIPE4)
+				trigger_swipe4(gs, cfg, hs, gs->delayed_decel_speed, gs->move_dir);
 
-		gs->delayed_decel_wake = hs->evtime + GS_DECEL_TICK;
+			gs->delayed_decel_wake = hs->evtime + GS_DECEL_TICK;
+		}
 	}
 
 	*delay_sleep = gs->delayed_decel_wake - hs->evtime;
@@ -845,11 +846,12 @@ static int delayed_update(struct Gestures* gs,
 		gs->delayed_sleep = click;
 	else
 		gs->delayed_sleep = MINVAL(click, decel);
+
 #ifdef DEBUG_GESTURES
-	xf86Msg(X_INFO, "delayed_update: sleeping for %d\n", gs->delayed_sleep);
+	xf86Msg(X_INFO, "delayed_update: sleeping for %d (%d, %d)\n", gs->delayed_sleep, click, decel);
 #endif
 
-	if (decel_res)
+	if (decel_res || gs->delayed_sleep != -1)
 		return GS_DELAY_REPEAT;
 	else if (click_res)
 		return GS_DELAY_UPDATE;
@@ -880,8 +882,17 @@ int gestures_delayed(struct Gestures* gs,
 			struct MTState* ms,
 			struct mtdev* dev, int fd)
 {
-	if (gs->delayed_sleep != -1 && mtdev_empty(dev) && mtdev_idle(dev, fd, gs->delayed_sleep))
+	if (gs->delayed_sleep == -1 || (mtdev_empty(dev) && mtdev_idle(dev, fd, gs->delayed_sleep))) {
+#ifdef DEBUG_GESTURES
+	xf86Msg(X_INFO, "gestures_delayed: calling delayed_update, delayed sleep was %d\n", gs->delayed_sleep);
+#endif
 		return delayed_update(gs, cfg, hs, ms);
-	else
+	}
+	else {
+#ifdef DEBUG_GESTURES
+	xf86Msg(X_INFO, "gestures_delayed: skipping delayed_update, delayed sleep was %d\n", gs->delayed_sleep);
+#endif
 		return GS_DELAY_NONE;
+	}
 }
+

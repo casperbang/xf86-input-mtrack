@@ -224,9 +224,9 @@ static void read_input(LocalDevicePtr local)
 	int delay;
 	struct MTouch *mt = local->private;
 
-	while (read_packet(mt, local->fd) > 0)
-		handle_gestures(local, &mt->gs);
 	do {
+		while (read_packet(mt, local->fd) > 0)
+			handle_gestures(local, &mt->gs);
 		delay = has_delayed(mt, local->fd);
 		if (delay != GS_DELAY_NONE)
 			handle_gestures(local, &mt->gs);
