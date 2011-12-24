@@ -859,38 +859,31 @@ static int delayed_update(struct Gestures* gs,
 		return GS_DELAY_NONE;
 }
 
-void gestures_init(struct Gestures* gs)
+void gestures_init(struct MTouch* mt)
 {
-	memset(gs, 0, sizeof(struct Gestures));
+	memset(&mt->gs, 0, sizeof(struct Gestures));
 }
 
-void gestures_extract(struct Gestures* gs,
-			const struct MConfig* cfg,
-			const struct HWState* hs,
-			struct MTState* ms)
+void gestures_extract(struct MTouch* mt)
 {
-	dragging_update(gs, hs);
-	buttons_update(gs, cfg, hs, ms);
-	tapping_update(gs, cfg, hs, ms);
-	moving_update(gs, cfg, hs, ms);
-	delayed_update(gs, cfg, hs, ms);
+	dragging_update(&mt->gs, &mt->hs);
+	buttons_update(&mt->gs, &mt->cfg, &mt->hs, &mt->ms);
+	tapping_update(&mt->gs, &mt->cfg, &mt->hs, &mt->ms);
+	moving_update(&mt->gs, &mt->cfg, &mt->hs, &mt->ms);
+	delayed_update(&mt->gs, &mt->cfg, &mt->hs, &mt->ms);
 }
 
-int gestures_delayed(struct Gestures* gs,
-			const struct MConfig* cfg,
-			const struct HWState* hs,
-			struct MTState* ms,
-			struct mtdev* dev, int fd)
+int gestures_delayed(struct MTouch* mt)
 {
-	if (gs->delayed_sleep == -1 || (mtdev_empty(dev) && mtdev_idle(dev, fd, gs->delayed_sleep))) {
+	if (mt->gs.delayed_sleep == -1 || (!mtouch_ready(mt) && mtouch_sleep(mt, gs->delayed_sleep))) {
 #ifdef DEBUG_GESTURES
-	xf86Msg(X_INFO, "gestures_delayed: calling delayed_update, delayed sleep was %d\n", gs->delayed_sleep);
+	xf86Msg(X_INFO, "gestures_delayed: calling delayed_update, delayed sleep was %d\n", mt->gs.delayed_sleep);
 #endif
-		return delayed_update(gs, cfg, hs, ms);
+		return delayed_update(&mt->gs, &mt->cfg, &mt->hs, &mt->ms);
 	}
 	else {
 #ifdef DEBUG_GESTURES
-	xf86Msg(X_INFO, "gestures_delayed: skipping delayed_update, delayed sleep was %d\n", gs->delayed_sleep);
+	xf86Msg(X_INFO, "gestures_delayed: skipping delayed_update, delayed sleep was %d\n", mt->gs.delayed_sleep);
 #endif
 		return GS_DELAY_NONE;
 	}

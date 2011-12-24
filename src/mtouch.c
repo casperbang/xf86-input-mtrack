@@ -51,7 +51,7 @@ int mtouch_open(struct MTouch *mt, int fd)
 	mconfig_init(&mt->cfg, &mt->caps);
 	hwstate_init(&mt->hs, &mt->caps);
 	mtstate_init(&mt->state);
-	gestures_init(&mt->gs);
+	gestures_init(mt);
 	if (use_grab) {
 		SYSCALL(ret = ioctl(mt->fd, EVIOCGRAB, 1));
 		if (ret)
@@ -97,12 +97,12 @@ int mtouch_read(struct MTouch *mt)
 		return ret;
 	mt->time = mt->hs.evtime;
 	mtstate_extract(&mt->state, &mt->cfg, &mt->hs, &mt->caps);
-	gestures_extract(&mt->gs, &mt->cfg, &mt->hs, &mt->state);
+	gestures_extract(mt);
 	return 1;
 }
 
 int mtouch_delayed(struct MTouch *mt)
 {
-	return gestures_delayed(&mt->gs, &mt->cfg, &mt->hs, &mt->state, &mt->dev, mt->fd);
+	return gestures_delayed(mt);
 }
 
