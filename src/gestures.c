@@ -32,6 +32,67 @@
 #define IS_VALID_BUTTON(x) (x >= 0 && x <= 31)
 #define SPEED(d, t) ((t) == 0 ? 0 : ((double)(d))/((double)(t)))
 
+static int get_scroll_dir(const struct Touch* t1,
+			const struct Touch* t2)
+{
+	if (trig_angles_acute(t1->direction, t2->direction) < 2.0)
+		return trig_generalize(t1->direction);
+	return TR_NONE;
+}
+
+static int get_rotate_dir(const struct Touch* t1,
+			const struct Touch* t2)
+{
+	double v, d1, d2;
+	v = trig_direction(t2->x - t1->x, t2->y - t1->y);
+	d1 = trig_angles_add(v, 2);
+	d2 = trig_angles_sub(v, 2);
+	if (trig_angles_acute(t1->direction, d1) < 2 && trig_angles_acute(t2->direction, d2) < 2)
+		return TR_DIR_RT;
+	else if (trig_angles_acute(t1->direction, d2) < 2 && trig_angles_acute(t2->direction, d1) < 2)
+		return TR_DIR_LT;
+	return TR_NONE;
+}
+
+static int get_scale_dir(const struct Touch* t1,
+			const struct Touch* t2)
+{
+	double v;
+	if (trig_angles_acute(t1->direction, t2->direction) >= 2) {
+		v = trig_direction(t2->x - t1->x, t2->y - t1->y);
+		if (trig_angles_acute(v, t1->direction) < 2)
+			return TR_DIR_DN;
+		else
+			return TR_DIR_UP;
+	}
+	return TR_NONE;
+}
+
+static int get_swipe_dir(const struct Touch* t1,
+			const struct Touch* t2,
+			const struct Touch* t3)
+{
+	double d1, d2;
+	d1 = MINVAL(t1->direction, MINVAL(t2->direction, t3->direction));
+	d2 = MAXVAL(t1->direction, MAXVAL(t2->direction, t3->direction));
+	if (trig_angles_acute(d1, d2) < 2)
+		return trig_generalize(t1->direction);
+	return TR_NONE;
+}
+
+static int get_swipe4_dir(const struct Touch* t1,
+			const struct Touch* t2,
+			const struct Touch* t3,
+			const struct Touch* t4)
+{
+	double d1, d2;
+	d1 = MINVAL(MINVAL(t1->direction, t2->direction), MINVAL(t3->direction, t4->direction));
+	d2 = MAXVAL(MAXVAL(t1->direction, t2->direction), MAXVAL(t3->direction, t4->direction));
+	if (trig_angles_acute(d1, d2) < 2)
+		return trig_generalize(t1->direction);
+	return TR_NONE;
+}
+
 static void trigger_button_up(struct Gestures* gs, int button)
 {
 	if (IS_VALID_BUTTON(button)) {
@@ -160,218 +221,6 @@ static void trigger_drag_stop(struct Gestures* gs, int force)
 #ifdef DEBUG_GESTURES
 		xf86Msg(X_INFO, "trigger_drag_stop: drag stopped\n");
 #endif
-	}
-}
-
-static void buttons_update(struct MTouch* mt)
-{
-	if (!cfg->button_enable || cfg->trackpad_disable >= 3)
-		return;
-
-	struct Gestures* gs = &mt->gs;
-	struct MConfig* cfg = &mt->cfg;
-	struct HWState* hs = &mt->hs;
-	struct MTState* ms = &mt->ms;
-
-	static bitmask_t button_prev = 0U;
-	int i, down, emulate, touching;
-	down = 0;
-	emulate = GETBIT(hs->button, 0) && !GETBIT(button_prev, 0);
-
-	for (i = 0; i < 32; i++) {
-		if (GETBIT(hs->button, i) == GETBIT(button_prev, i))
-			continue;
-		if (GETBIT(hs->button, i)) {
-			down++;
-			trigger_button_down(gs, i);
-		}
-		else
-			trigger_button_up(gs, i);
-	}
-	button_prev = hs->button;
-
-	if (down) {
-		int earliest, latest, moving = 0;
-		gs->move_type = GS_NONE;
-		gs->move_wait = mt->time + cfg->gesture_wait;
-		earliest = -1;
-		latest = -1;
-		foreach_bit(i, ms->touch_used) {
-			if (GETBIT(ms->touch[i].state, MT_INVALID))
-				continue;
-			if (cfg->button_integrated && !GETBIT(ms->touch[i].flags, GS_BUTTON))
-				SETBIT(ms->touch[i].flags, GS_BUTTON);
-			if (earliest == -1 || ms->touch[i].down < ms->touch[earliest].down)
-				earliest = i;
-			if (latest == -1 || ms->touch[i].down > ms->touch[latest].down)
-				latest = i;
-		}
-
-		if (emulate) {
-			if (cfg->button_zones && earliest >= 0) {
-				int zones, left, right, pos;
-				double width;
-
-				zones = 0;
-				if (cfg->button_1touch > 0)
-					zones++;
-				if (cfg->button_2touch > 0)
-					zones++;
-				if (cfg->button_3touch > 0)
-					zones++;
-
-				if (zones > 0) {
-					width = ((double)cfg->pad_width)/((double)zones);
-					pos = cfg->pad_width / 2 + ms->touch[earliest].x;
-#ifdef DEBUG_GESTURES
-					xf86Msg(X_INFO, "buttons_update: pad width %d, zones %d, zone width %f, x %d\n",
-						cfg->pad_width, zones, width, pos);
-#endif
-					for (i = 0; i < zones; i++) {
-						left = width*i;
-						right = width*(i+1);
-						if (pos >= left && pos <= right) {
-#ifdef DEBUG_GESTURES
-							xf86Msg(X_INFO, "buttons_update: button %d, left %d, right %d (found)\n", i, left, right);
-#endif
-							break;
-						}
-#ifdef DEBUG_GESTURES
-						else
-							xf86Msg(X_INFO, "buttons_update: button %d, left %d, right %d\n", i, left, right);
-#endif
-					}
-
-					if (i == 0)
-						trigger_button_emulation(gs, cfg->button_1touch - 1);
-					else if (i == 1)
-						trigger_button_emulation(gs, cfg->button_2touch - 1);
-					else
-						trigger_button_emulation(gs, cfg->button_3touch - 1);
-				}
-			}
-			else if (latest >= 0) {
-				touching = 0;
-				foreach_bit(i, ms->touch_used) {
-					if (cfg->button_move || cfg->button_expire == 0 || ms->touch[latest].down < ms->touch[i].down + cfg->button_expire)
-						touching++;
-				}
-
-				if (cfg->button_integrated)
-					touching--;
-
-				if (touching == 1 && cfg->button_1touch > 0)
-					trigger_button_emulation(gs, cfg->button_1touch - 1);
-				else if (touching == 2 && cfg->button_2touch > 0)
-					trigger_button_emulation(gs, cfg->button_2touch - 1);
-				else if (touching == 3 && cfg->button_3touch > 0)
-					trigger_button_emulation(gs, cfg->button_3touch - 1);
-			}
-		}
-	}
-}
-
-static void tapping_update(struct MTouch* mt)
-{
-	int i, n, dist, released_max;
-
-	struct Gestures* gs = &mt->gs;
-	struct MConfig* cfg = &mt->cfg;
-	struct HWState* hs = &mt->hs;
-	struct MTState* ms = &mt->ms;
-
-	if (cfg->trackpad_disable >= 1)
-		return;
-
-	if (cfg->tap_4touch > 0)
-		released_max = 4;
-	else if (cfg->tap_3touch > 0)
-		released_max = 3;
-	else if (cfg->tap_2touch > 0)
-		released_max = 2;
-	else if (cfg->tap_1touch > 0)
-		released_max = 1;
-	else
-		return;
-
-	if (gs->tap_time_down != 0 && mt->time >= gs->tap_time_down + cfg->tap_timeout) {
-		gs->tap_time_down = 0;
-		gs->tap_touching = 0;
-		gs->tap_released = 0;
-		foreach_bit(i, ms->touch_used) {
-			if (GETBIT(ms->touch[i].flags, GS_TAP))
-				CLEARBIT(ms->touch[i].flags, GS_TAP);
-		}
-	}
-	else {
-		foreach_bit(i, ms->touch_used) {
-			if (GETBIT(ms->touch[i].state, MT_INVALID) || GETBIT(ms->touch[i].flags, GS_BUTTON)) {
-				if (GETBIT(ms->touch[i].flags, GS_TAP)) {
-					CLEARBIT(ms->touch[i].flags, GS_TAP);
-					gs->tap_touching--;
-#ifdef DEBUG_GESTURES
-					xf86Msg(X_INFO, "tapping_update: tap_touching-- (%d): invalid or button\n", gs->tap_touching);
-#endif
-				}
-			}
-			else {
-				if (GETBIT(ms->touch[i].state, MT_NEW)) {
-					SETBIT(ms->touch[i].flags, GS_TAP);
-					gs->tap_touching++;
-#ifdef DEBUG_GESTURES
-					xf86Msg(X_INFO, "tapping_update: tap_touching++ (%d): new touch\n", gs->tap_touching);
-#endif
-					if (gs->tap_time_down == 0)
-						gs->tap_time_down = mt->time;
-				}
-
-				if (GETBIT(ms->touch[i].flags, GS_TAP)) {
-					dist = dist2(ms->touch[i].total_dx, ms->touch[i].total_dy);
-					if (dist >= SQRVAL(cfg->tap_dist)) {
-						CLEARBIT(ms->touch[i].flags, GS_TAP);
-						gs->tap_touching--;
-#ifdef DEBUG_GESTURES
-					xf86Msg(X_INFO, "tapping_update: tap_touching-- (%d): moved too far\n", gs->tap_touching);
-#endif
-					}
-					else if (GETBIT(ms->touch[i].state, MT_RELEASED)) {
-						gs->tap_touching--;
-						gs->tap_released++;
-#ifdef DEBUG_GESTURES
-					xf86Msg(X_INFO, "tapping_update: tap_touching-- (%d): released\n", gs->tap_touching);
-					xf86Msg(X_INFO, "tapping_update: tap_released++ (%d) (max %d): released\n", gs->tap_released, released_max);
-#endif
-					}
-				}
-			}
-		}
-	}
-
-	if ((gs->tap_touching == 0 && gs->tap_released > 0) || gs->tap_released >= released_max) {
-		foreach_bit(i, ms->touch_used) {
-			if (GETBIT(ms->touch[i].flags, GS_TAP))
-				CLEARBIT(ms->touch[i].flags, GS_TAP);
-		}
-
-		if (gs->tap_released == 1)
-			n = cfg->tap_1touch - 1;
-		else if (gs->tap_released == 2)
-			n = cfg->tap_2touch - 1;
-		else if (gs->tap_released == 3)
-			n = cfg->tap_3touch - 1;
-		else
-			n = cfg->tap_4touch - 1;
-
-		trigger_button_click(gs, n, mt->time + cfg->tap_hold);
-		if (cfg->drag_enable && n == 0)
-			trigger_drag_ready(gs, cfg, mt->time);
-
-		gs->move_type = GS_NONE;
-		gs->move_wait = mt->time + cfg->gesture_wait;
-
-		gs->tap_time_down = 0;
-		gs->tap_touching = 0;
-		gs->tap_released = 0;
 	}
 }
 
@@ -593,65 +442,216 @@ static void trigger_reset(struct Gestures* gs)
 	gs->move_dir = TR_NONE;
 }
 
-static int get_scroll_dir(const struct Touch* t1,
-			const struct Touch* t2)
+static void buttons_update(struct MTouch* mt)
 {
-	if (trig_angles_acute(t1->direction, t2->direction) < 2.0)
-		return trig_generalize(t1->direction);
-	return TR_NONE;
-}
+	if (!cfg->button_enable || cfg->trackpad_disable >= 3)
+		return;
 
-static int get_rotate_dir(const struct Touch* t1,
-			const struct Touch* t2)
-{
-	double v, d1, d2;
-	v = trig_direction(t2->x - t1->x, t2->y - t1->y);
-	d1 = trig_angles_add(v, 2);
-	d2 = trig_angles_sub(v, 2);
-	if (trig_angles_acute(t1->direction, d1) < 2 && trig_angles_acute(t2->direction, d2) < 2)
-		return TR_DIR_RT;
-	else if (trig_angles_acute(t1->direction, d2) < 2 && trig_angles_acute(t2->direction, d1) < 2)
-		return TR_DIR_LT;
-	return TR_NONE;
-}
+	struct Gestures* gs = &mt->gs;
+	struct MConfig* cfg = &mt->cfg;
+	struct HWState* hs = &mt->hs;
+	struct MTState* ms = &mt->ms;
 
-static int get_scale_dir(const struct Touch* t1,
-			const struct Touch* t2)
-{
-	double v;
-	if (trig_angles_acute(t1->direction, t2->direction) >= 2) {
-		v = trig_direction(t2->x - t1->x, t2->y - t1->y);
-		if (trig_angles_acute(v, t1->direction) < 2)
-			return TR_DIR_DN;
+	static bitmask_t button_prev = 0U;
+	int i, down, emulate, touching;
+	down = 0;
+	emulate = GETBIT(hs->button, 0) && !GETBIT(button_prev, 0);
+
+	for (i = 0; i < 32; i++) {
+		if (GETBIT(hs->button, i) == GETBIT(button_prev, i))
+			continue;
+		if (GETBIT(hs->button, i)) {
+			down++;
+			trigger_button_down(gs, i);
+		}
 		else
-			return TR_DIR_UP;
+			trigger_button_up(gs, i);
 	}
-	return TR_NONE;
+	button_prev = hs->button;
+
+	if (down) {
+		int earliest, latest, moving = 0;
+		gs->move_type = GS_NONE;
+		gs->move_wait = mt->time + cfg->gesture_wait;
+		earliest = -1;
+		latest = -1;
+		foreach_bit(i, ms->touch_used) {
+			if (GETBIT(ms->touch[i].state, MT_INVALID))
+				continue;
+			if (cfg->button_integrated && !GETBIT(ms->touch[i].flags, GS_BUTTON))
+				SETBIT(ms->touch[i].flags, GS_BUTTON);
+			if (earliest == -1 || ms->touch[i].down < ms->touch[earliest].down)
+				earliest = i;
+			if (latest == -1 || ms->touch[i].down > ms->touch[latest].down)
+				latest = i;
+		}
+
+		if (emulate) {
+			if (cfg->button_zones && earliest >= 0) {
+				int zones, left, right, pos;
+				double width;
+
+				zones = 0;
+				if (cfg->button_1touch > 0)
+					zones++;
+				if (cfg->button_2touch > 0)
+					zones++;
+				if (cfg->button_3touch > 0)
+					zones++;
+
+				if (zones > 0) {
+					width = ((double)cfg->pad_width)/((double)zones);
+					pos = cfg->pad_width / 2 + ms->touch[earliest].x;
+#ifdef DEBUG_GESTURES
+					xf86Msg(X_INFO, "buttons_update: pad width %d, zones %d, zone width %f, x %d\n",
+						cfg->pad_width, zones, width, pos);
+#endif
+					for (i = 0; i < zones; i++) {
+						left = width*i;
+						right = width*(i+1);
+						if (pos >= left && pos <= right) {
+#ifdef DEBUG_GESTURES
+							xf86Msg(X_INFO, "buttons_update: button %d, left %d, right %d (found)\n", i, left, right);
+#endif
+							break;
+						}
+#ifdef DEBUG_GESTURES
+						else
+							xf86Msg(X_INFO, "buttons_update: button %d, left %d, right %d\n", i, left, right);
+#endif
+					}
+
+					if (i == 0)
+						trigger_button_emulation(gs, cfg->button_1touch - 1);
+					else if (i == 1)
+						trigger_button_emulation(gs, cfg->button_2touch - 1);
+					else
+						trigger_button_emulation(gs, cfg->button_3touch - 1);
+				}
+			}
+			else if (latest >= 0) {
+				touching = 0;
+				foreach_bit(i, ms->touch_used) {
+					if (cfg->button_move || cfg->button_expire == 0 || ms->touch[latest].down < ms->touch[i].down + cfg->button_expire)
+						touching++;
+				}
+
+				if (cfg->button_integrated)
+					touching--;
+
+				if (touching == 1 && cfg->button_1touch > 0)
+					trigger_button_emulation(gs, cfg->button_1touch - 1);
+				else if (touching == 2 && cfg->button_2touch > 0)
+					trigger_button_emulation(gs, cfg->button_2touch - 1);
+				else if (touching == 3 && cfg->button_3touch > 0)
+					trigger_button_emulation(gs, cfg->button_3touch - 1);
+			}
+		}
+	}
 }
 
-static int get_swipe_dir(const struct Touch* t1,
-			const struct Touch* t2,
-			const struct Touch* t3)
+static void tapping_update(struct MTouch* mt)
 {
-	double d1, d2;
-	d1 = MINVAL(t1->direction, MINVAL(t2->direction, t3->direction));
-	d2 = MAXVAL(t1->direction, MAXVAL(t2->direction, t3->direction));
-	if (trig_angles_acute(d1, d2) < 2)
-		return trig_generalize(t1->direction);
-	return TR_NONE;
-}
+	int i, n, dist, released_max;
 
-static int get_swipe4_dir(const struct Touch* t1,
-			const struct Touch* t2,
-			const struct Touch* t3,
-			const struct Touch* t4)
-{
-	double d1, d2;
-	d1 = MINVAL(MINVAL(t1->direction, t2->direction), MINVAL(t3->direction, t4->direction));
-	d2 = MAXVAL(MAXVAL(t1->direction, t2->direction), MAXVAL(t3->direction, t4->direction));
-	if (trig_angles_acute(d1, d2) < 2)
-		return trig_generalize(t1->direction);
-	return TR_NONE;
+	struct Gestures* gs = &mt->gs;
+	struct MConfig* cfg = &mt->cfg;
+	struct HWState* hs = &mt->hs;
+	struct MTState* ms = &mt->ms;
+
+	if (cfg->trackpad_disable >= 1)
+		return;
+
+	if (cfg->tap_4touch > 0)
+		released_max = 4;
+	else if (cfg->tap_3touch > 0)
+		released_max = 3;
+	else if (cfg->tap_2touch > 0)
+		released_max = 2;
+	else if (cfg->tap_1touch > 0)
+		released_max = 1;
+	else
+		return;
+
+	if (gs->tap_time_down != 0 && mt->time >= gs->tap_time_down + cfg->tap_timeout) {
+		gs->tap_time_down = 0;
+		gs->tap_touching = 0;
+		gs->tap_released = 0;
+		foreach_bit(i, ms->touch_used) {
+			if (GETBIT(ms->touch[i].flags, GS_TAP))
+				CLEARBIT(ms->touch[i].flags, GS_TAP);
+		}
+	}
+	else {
+		foreach_bit(i, ms->touch_used) {
+			if (GETBIT(ms->touch[i].state, MT_INVALID) || GETBIT(ms->touch[i].flags, GS_BUTTON)) {
+				if (GETBIT(ms->touch[i].flags, GS_TAP)) {
+					CLEARBIT(ms->touch[i].flags, GS_TAP);
+					gs->tap_touching--;
+#ifdef DEBUG_GESTURES
+					xf86Msg(X_INFO, "tapping_update: tap_touching-- (%d): invalid or button\n", gs->tap_touching);
+#endif
+				}
+			}
+			else {
+				if (GETBIT(ms->touch[i].state, MT_NEW)) {
+					SETBIT(ms->touch[i].flags, GS_TAP);
+					gs->tap_touching++;
+#ifdef DEBUG_GESTURES
+					xf86Msg(X_INFO, "tapping_update: tap_touching++ (%d): new touch\n", gs->tap_touching);
+#endif
+					if (gs->tap_time_down == 0)
+						gs->tap_time_down = mt->time;
+				}
+
+				if (GETBIT(ms->touch[i].flags, GS_TAP)) {
+					dist = dist2(ms->touch[i].total_dx, ms->touch[i].total_dy);
+					if (dist >= SQRVAL(cfg->tap_dist)) {
+						CLEARBIT(ms->touch[i].flags, GS_TAP);
+						gs->tap_touching--;
+#ifdef DEBUG_GESTURES
+					xf86Msg(X_INFO, "tapping_update: tap_touching-- (%d): moved too far\n", gs->tap_touching);
+#endif
+					}
+					else if (GETBIT(ms->touch[i].state, MT_RELEASED)) {
+						gs->tap_touching--;
+						gs->tap_released++;
+#ifdef DEBUG_GESTURES
+					xf86Msg(X_INFO, "tapping_update: tap_touching-- (%d): released\n", gs->tap_touching);
+					xf86Msg(X_INFO, "tapping_update: tap_released++ (%d) (max %d): released\n", gs->tap_released, released_max);
+#endif
+					}
+				}
+			}
+		}
+	}
+
+	if ((gs->tap_touching == 0 && gs->tap_released > 0) || gs->tap_released >= released_max) {
+		foreach_bit(i, ms->touch_used) {
+			if (GETBIT(ms->touch[i].flags, GS_TAP))
+				CLEARBIT(ms->touch[i].flags, GS_TAP);
+		}
+
+		if (gs->tap_released == 1)
+			n = cfg->tap_1touch - 1;
+		else if (gs->tap_released == 2)
+			n = cfg->tap_2touch - 1;
+		else if (gs->tap_released == 3)
+			n = cfg->tap_3touch - 1;
+		else
+			n = cfg->tap_4touch - 1;
+
+		trigger_button_click(gs, n, mt->time + cfg->tap_hold);
+		if (cfg->drag_enable && n == 0)
+			trigger_drag_ready(gs, cfg, mt->time);
+
+		gs->move_type = GS_NONE;
+		gs->move_wait = mt->time + cfg->gesture_wait;
+
+		gs->tap_time_down = 0;
+		gs->tap_touching = 0;
+		gs->tap_released = 0;
+	}
 }
 
 static void moving_update(struct MTouch* mt)
