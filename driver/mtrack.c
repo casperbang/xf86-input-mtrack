@@ -179,7 +179,7 @@ static int device_off(LocalDevicePtr local)
 {
 	struct MTouch *mt = local->private;
 	xf86RemoveEnabledDevice(local);
-	if (mtouch_close(mt, local->fd))
+	if (mtouch_close(mt))
 		xf86Msg(X_WARNING, "mtrack: cannot ungrab device\n");
 	xf86CloseSerial(local->fd);
 	return Success;
@@ -221,19 +221,20 @@ static void handle_gestures(LocalDevicePtr local,
 /* called for each full received packet from the touchpad */
 static void read_input(LocalDevicePtr local)
 {
-	int delay;
 	struct MTouch *mt = local->private;
 
-	do {
-		while (read_packet(mt, local->fd) > 0)
-			handle_gestures(local, &mt->gs);
-		delay = has_delayed(mt, local->fd);
-		if (delay != GS_DELAY_NONE)
-			handle_gestures(local, &mt->gs);
+	while (read_packet(mt) > 0)
+		handle_gestures(local, &mt->gs);
+
+	while (has_delayed(mt) != GS_DELAY_NONE) {
+		handle_gestures(local, &mt->gs);
 #ifdef DEBUG_DRIVER
-		xf86Msg(X_INFO, "read_input: has_delayed returned %d\n", delay);
+		xf86Msg(X_INFO, "read_input: has_delayed processing\n");
 #endif
-	} while (delay == GS_DELAY_REPEAT);
+	}
+#ifdef DEBUG_DRIVER
+		xf86Msg(X_INFO, "read_input: complete %d\n");
+#endif
 }
 
 static Bool device_control(DeviceIntPtr dev, int mode)

@@ -31,6 +31,8 @@
 #include "gestures.h"
 
 struct MTouch {
+	int fd;
+	mstime_t time;
 	struct mtdev dev;
 	struct Capabilities caps;
 	struct HWState hs;
@@ -41,9 +43,12 @@ struct MTouch {
 
 int mtouch_configure(struct MTouch *mt, int fd);
 int mtouch_open(struct MTouch *mt, int fd);
-int mtouch_close(struct MTouch *mt, int fd);
+int mtouch_close(struct MTouch *mt);
 
-int read_packet(struct MTouch *mt, int fd);
-int has_delayed(struct MTouch *mt, int fd);
+int mtouch_ready(struct MTouch *mt);
+int mtouch_sleep(struct MTouch *mt, int ms);
+
+int read_packet(struct MTouch *mt);
+int has_delayed(struct MTouch *mt);
 
 #endif

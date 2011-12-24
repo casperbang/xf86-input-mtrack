@@ -21,8 +21,15 @@
  **************************************************************************/
 
 #include "mtouch.h"
+#include <sys/timeb.h>
 
 static const int use_grab = 0;
+
+static time_t mstime() {
+	struct timeb tb;
+	ftime(&tb);
+	return tb.time * 1000 + tb.millitm;
+}
 
 int mtouch_configure(struct MTouch *mt, int fd)
 {
@@ -37,7 +44,8 @@ int mtouch_configure(struct MTouch *mt, int fd)
 int mtouch_open(struct MTouch *mt, int fd)
 {
 	int ret;
-	ret = mtdev_open(&mt->dev, fd);
+	mt->fd = fd;
+	ret = mtdev_open(mt->dev, mt->fd);
 	if (ret)
 		goto error;
 	mconfig_init(&mt->cfg, &mt->caps);
@@ -45,7 +53,7 @@ int mtouch_open(struct MTouch *mt, int fd)
 	mtstate_init(&mt->state);
 	gestures_init(&mt->gs);
 	if (use_grab) {
-		SYSCALL(ret = ioctl(fd, EVIOCGRAB, 1));
+		SYSCALL(ret = ioctl(mt->fd, EVIOCGRAB, 1));
 		if (ret)
 			goto close;
 	}
@@ -57,11 +65,11 @@ int mtouch_open(struct MTouch *mt, int fd)
 }
 
 
-int mtouch_close(struct MTouch *mt, int fd)
+int mtouch_close(struct MTouch *mt)
 {
 	int ret;
 	if (use_grab) {
-		SYSCALL(ret = ioctl(fd, EVIOCGRAB, 0));
+		SYSCALL(ret = ioctl(mt->fd, EVIOCGRAB, 0));
 		if (ret)
 			xf86Msg(X_WARNING, "mtouch: ungrab failed\n");
 	}
@@ -69,18 +77,32 @@ int mtouch_close(struct MTouch *mt, int fd)
 	return 0;
 }
 
-int read_packet(struct MTouch *mt, int fd)
+int mtouch_ready(struct MTouch *mt)
 {
-	int ret = hwstate_modify(&mt->hs, &mt->dev, fd, &mt->caps);
+	return !mtdev_empty(&mt->dev);
+}
+
+int mtouch_sleep(struct MTouch *mt, int ms)
+{
+	time_t start = mstime();
+	int res = mtdev_idle(&mt->dev, mt->fd, ms);
+	mt->time = mt->time + (mstime() - start);
+	return res;
+}
+
+int read_packet(struct MTouch *mt)
+{
+	int ret = hwstate_modify(&mt->hs, &mt->dev, mt->fd, &mt->caps);
 	if (ret <= 0)
 		return ret;
+	mt->time = mt->hs.evtime;
 	mtstate_extract(&mt->state, &mt->cfg, &mt->hs, &mt->caps);
 	gestures_extract(&mt->gs, &mt->cfg, &mt->hs, &mt->state);
 	return 1;
 }
 
-int has_delayed(struct MTouch *mt, int fd)
+int has_delayed(struct MTouch *mt)
 {
-	return gestures_delayed(&mt->gs, &mt->cfg, &mt->hs, &mt->state, &mt->dev, fd);
+	return gestures_delayed(&mt->gs, &mt->cfg, &mt->hs, &mt->state, &mt->dev, mt->fd);
 }
 
