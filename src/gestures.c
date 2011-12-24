@@ -91,10 +91,10 @@ static void trigger_button_click(struct Gestures* gs,
 
 static void trigger_drag_ready(struct Gestures* gs,
 			const struct MConfig* cfg,
-			const struct HWState* hs)
+			const mstime_t time)
 {
 	gs->move_drag = GS_DRAG_READY;
-	gs->move_drag_expire = hs->evtime + cfg->drag_timeout;
+	gs->move_drag_expire = time + cfg->drag_timeout;
 #ifdef DEBUG_GESTURES
 	xf86Msg(X_INFO, "trigger_drag_ready: drag is ready\n");
 #endif
@@ -102,7 +102,7 @@ static void trigger_drag_ready(struct Gestures* gs,
 
 static int trigger_drag_start(struct Gestures* gs,
 			const struct MConfig* cfg,
-			const struct HWState* hs,
+			const mstime_t time,
 			int dx, int dy)
 {
 	if (gs->move_drag == GS_DRAG_READY) {
@@ -116,7 +116,7 @@ static int trigger_drag_start(struct Gestures* gs,
 		}
 		else {
 			gs->move_drag = GS_DRAG_WAIT;
-			gs->move_drag_wait = hs->evtime + cfg->drag_wait;
+			gs->move_drag_wait = time + cfg->drag_wait;
 			gs->move_drag_dx = dx;
 			gs->move_drag_dy = dy;
 #ifdef DEBUG_GESTURES
@@ -127,7 +127,7 @@ static int trigger_drag_start(struct Gestures* gs,
 	else if (gs->move_drag == GS_DRAG_WAIT) {
 		gs->move_drag_dx += dx;
 		gs->move_drag_dy += dy;
-		if (hs->evtime >= gs->move_drag_wait) {
+		if (time >= gs->move_drag_wait) {
 			gs->move_drag = GS_DRAG_ACTIVE;
 			trigger_button_down(gs, 0);
 #ifdef DEBUG_GESTURES
@@ -163,13 +163,15 @@ static void trigger_drag_stop(struct Gestures* gs, int force)
 	}
 }
 
-static void buttons_update(struct Gestures* gs,
-			const struct MConfig* cfg,
-			const struct HWState* hs,
-			struct MTState* ms)
+static void buttons_update(struct MTouch* mt)
 {
 	if (!cfg->button_enable || cfg->trackpad_disable >= 3)
 		return;
+
+	struct Gestures* gs = &mt->gs;
+	struct MConfig* cfg = &mt->cfg;
+	struct HWState* hs = &mt->hs;
+	struct MTState* ms = &mt->ms;
 
 	static bitmask_t button_prev = 0U;
 	int i, down, emulate, touching;
@@ -191,7 +193,7 @@ static void buttons_update(struct Gestures* gs,
 	if (down) {
 		int earliest, latest, moving = 0;
 		gs->move_type = GS_NONE;
-		gs->move_wait = hs->evtime + cfg->gesture_wait;
+		gs->move_wait = mt->time + cfg->gesture_wait;
 		earliest = -1;
 		latest = -1;
 		foreach_bit(i, ms->touch_used) {
@@ -269,12 +271,14 @@ static void buttons_update(struct Gestures* gs,
 	}
 }
 
-static void tapping_update(struct Gestures* gs,
-			const struct MConfig* cfg,
-			const struct HWState* hs,
-			struct MTState* ms)
+static void tapping_update(struct MTouch* mt)
 {
 	int i, n, dist, released_max;
+
+	struct Gestures* gs = &mt->gs;
+	struct MConfig* cfg = &mt->cfg;
+	struct HWState* hs = &mt->hs;
+	struct MTState* ms = &mt->ms;
 
 	if (cfg->trackpad_disable >= 1)
 		return;
@@ -290,7 +294,7 @@ static void tapping_update(struct Gestures* gs,
 	else
 		return;
 
-	if (gs->tap_time_down != 0 && hs->evtime >= gs->tap_time_down + cfg->tap_timeout) {
+	if (gs->tap_time_down != 0 && mt->time >= gs->tap_time_down + cfg->tap_timeout) {
 		gs->tap_time_down = 0;
 		gs->tap_touching = 0;
 		gs->tap_released = 0;
@@ -318,7 +322,7 @@ static void tapping_update(struct Gestures* gs,
 					xf86Msg(X_INFO, "tapping_update: tap_touching++ (%d): new touch\n", gs->tap_touching);
 #endif
 					if (gs->tap_time_down == 0)
-						gs->tap_time_down = hs->evtime;
+						gs->tap_time_down = mt->time;
 				}
 
 				if (GETBIT(ms->touch[i].flags, GS_TAP)) {
@@ -358,12 +362,12 @@ static void tapping_update(struct Gestures* gs,
 		else
 			n = cfg->tap_4touch - 1;
 
-		trigger_button_click(gs, n, hs->evtime + cfg->tap_hold);
+		trigger_button_click(gs, n, mt->time + cfg->tap_hold);
 		if (cfg->drag_enable && n == 0)
-			trigger_drag_ready(gs, cfg, hs);
+			trigger_drag_ready(gs, cfg, mt->time);
 
 		gs->move_type = GS_NONE;
-		gs->move_wait = hs->evtime + cfg->gesture_wait;
+		gs->move_wait = mt->time + cfg->gesture_wait;
 
 		gs->tap_time_down = 0;
 		gs->tap_touching = 0;
@@ -373,11 +377,11 @@ static void tapping_update(struct Gestures* gs,
 
 static void trigger_move(struct Gestures* gs,
 			const struct MConfig* cfg,
-			const struct HWState* hs,
+			const mstime_t time,
 			int dx, int dy)
 {
-	if ((gs->move_type == GS_MOVE || hs->evtime >= gs->move_wait) && (dx != 0 || dy != 0)) {
-		if (trigger_drag_start(gs, cfg, hs, dx, dy)) {
+	if ((gs->move_type == GS_MOVE || time >= gs->move_wait) && (dx != 0 || dy != 0)) {
+		if (trigger_drag_start(gs, cfg, time, dx, dy)) {
 			gs->move_dx = (int)(dx*cfg->sensitivity);
 			gs->move_dy = (int)(dy*cfg->sensitivity);
 			gs->move_type = GS_MOVE;
@@ -393,7 +397,7 @@ static void trigger_move(struct Gestures* gs,
 
 static int trigger_decel(struct Gestures* gs,
 			const struct MConfig* cfg,
-			const struct HWState* hs)
+			const mstime_t time)
 {
 	if ((gs->move_type == GS_SCROLL && cfg->scroll_coast_enable &&
 			gs->move_speed >= cfg->scroll_coast_speed && cfg->scroll_coast_decel > 0) ||
@@ -401,7 +405,7 @@ static int trigger_decel(struct Gestures* gs,
 			gs->move_speed >= cfg->swipe_coast_speed && cfg->swipe_coast_decel > 0) ||
 			(gs->move_type == GS_SWIPE4 && cfg->swipe4_coast_enable &&
 			gs->move_speed >= cfg->swipe4_coast_speed && cfg->swipe4_coast_decel > 0)) {
-		gs->delayed_decel_wake = hs->evtime + GS_DECEL_TICK;
+		gs->delayed_decel_wake = time + GS_DECEL_TICK;
 		gs->delayed_decel_speed = gs->move_speed;
 #ifdef DEBUG_GESTURE
 		xf86Msg(X_INFO, "trigger_decel: starting decel at speed %d\n", gs->delayed_decel_speed);
@@ -417,30 +421,31 @@ static int trigger_decel(struct Gestures* gs,
 
 static void trigger_scroll(struct Gestures* gs,
 			const struct MConfig* cfg,
-			const struct HWState* hs,
+			const mstime_t time,
+			const mstime_t deltat,
 			int dist, int dir)
 {
-	if (gs->move_type == GS_SCROLL || hs->evtime >= gs->move_wait) {
+	if (gs->move_type == GS_SCROLL || time >= gs->move_wait) {
 		trigger_drag_stop(gs, 1);
 		if (gs->move_type != GS_SCROLL || gs->move_dir != dir)
 			gs->move_dist = 0;
 		gs->move_dx = 0;
 		gs->move_dy = 0;
 		gs->move_type = GS_SCROLL;
-		gs->move_wait = hs->evtime + cfg->gesture_wait;
+		gs->move_wait = time + cfg->gesture_wait;
 		gs->move_dist += ABSVAL(dist);
-		gs->move_speed = SPEED(gs->move_dist, hs->deltat);
+		gs->move_speed = SPEED(gs->move_dist, deltat);
 		gs->move_dir = dir;
 		if (gs->move_dist >= cfg->scroll_dist) {
 			gs->move_dist = MODVAL(gs->move_dist, cfg->scroll_dist);
 			if (dir == TR_DIR_UP)
-				trigger_button_click(gs, cfg->scroll_up_btn - 1, hs->evtime + cfg->gesture_hold);
+				trigger_button_click(gs, cfg->scroll_up_btn - 1, time + cfg->gesture_hold);
 			else if (dir == TR_DIR_DN)
-				trigger_button_click(gs, cfg->scroll_dn_btn - 1, hs->evtime + cfg->gesture_hold);
+				trigger_button_click(gs, cfg->scroll_dn_btn - 1, time + cfg->gesture_hold);
 			else if (dir == TR_DIR_LT)
-				trigger_button_click(gs, cfg->scroll_lt_btn - 1, hs->evtime + cfg->gesture_hold);
+				trigger_button_click(gs, cfg->scroll_lt_btn - 1, time + cfg->gesture_hold);
 			else if (dir == TR_DIR_RT)
-				trigger_button_click(gs, cfg->scroll_rt_btn - 1, hs->evtime + cfg->gesture_hold);
+				trigger_button_click(gs, cfg->scroll_rt_btn - 1, time + cfg->gesture_hold);
 		}
 #ifdef DEBUG_GESTURES
 		xf86Msg(X_INFO, "trigger_scroll: scrolling %+d in direction %d (at %d of %d)\n", dist, dir, gs->move_dist, cfg->scroll_dist);
@@ -450,31 +455,32 @@ static void trigger_scroll(struct Gestures* gs,
 
 static void trigger_swipe3(struct Gestures* gs,
 			const struct MConfig* cfg,
-			const struct HWState* hs,
+			const mstime_t time,
+			const mstime_t deltat,
 			int dist, int dir)
 {
-	if (gs->move_type == GS_SWIPE3 || hs->evtime >= gs->move_wait) {
+	if (gs->move_type == GS_SWIPE3 || time >= gs->move_wait) {
 		trigger_drag_stop(gs, 1);
 		if (gs->move_type != GS_SWIPE3 || gs->move_dir != dir)
 			gs->move_dist = 0;
 		gs->move_dx = 0;
 		gs->move_dy = 0;
 		gs->move_type = GS_SWIPE3;
-		gs->move_wait = hs->evtime + cfg->gesture_wait;
+		gs->move_wait = time + cfg->gesture_wait;
 		gs->move_dist += ABSVAL(dist);
-		gs->move_speed = SPEED(gs->move_dist, hs->deltat);
+		gs->move_speed = SPEED(gs->move_dist, deltat);
 		gs->move_dir = dir;
 
 		if (cfg->swipe_dist > 0 && gs->move_dist >= cfg->swipe_dist) {
 			gs->move_dist = MODVAL(gs->move_dist, cfg->swipe_dist);
 			if (dir == TR_DIR_UP)
-				trigger_button_click(gs, cfg->swipe_up_btn - 1, hs->evtime + cfg->gesture_hold);
+				trigger_button_click(gs, cfg->swipe_up_btn - 1, time + cfg->gesture_hold);
 			else if (dir == TR_DIR_DN)
-				trigger_button_click(gs, cfg->swipe_dn_btn - 1, hs->evtime + cfg->gesture_hold);
+				trigger_button_click(gs, cfg->swipe_dn_btn - 1, time + cfg->gesture_hold);
 			else if (dir == TR_DIR_LT)
-				trigger_button_click(gs, cfg->swipe_lt_btn - 1, hs->evtime + cfg->gesture_hold);
+				trigger_button_click(gs, cfg->swipe_lt_btn - 1, time + cfg->gesture_hold);
 			else if (dir == TR_DIR_RT)
-				trigger_button_click(gs, cfg->swipe_rt_btn - 1, hs->evtime + cfg->gesture_hold);
+				trigger_button_click(gs, cfg->swipe_rt_btn - 1, time + cfg->gesture_hold);
 		}
 #ifdef DEBUG_GESTURES
 		xf86Msg(X_INFO, "trigger_swipe3: swiping %+d in direction %d (at %d of %d)\n", dist, dir, gs->move_dist, cfg->swipe_dist);
@@ -484,31 +490,32 @@ static void trigger_swipe3(struct Gestures* gs,
 
 static void trigger_swipe4(struct Gestures* gs,
 			const struct MConfig* cfg,
-			const struct HWState* hs,
+			const mstime_t time,
+			const mstime_t deltat,
 			int dist, int dir)
 {
-	if (gs->move_type == GS_SWIPE4 || hs->evtime >= gs->move_wait) {
+	if (gs->move_type == GS_SWIPE4 || time >= gs->move_wait) {
 		trigger_drag_stop(gs, 1);
 		if (gs->move_type != GS_SWIPE4 || gs->move_dir != dir)
 			gs->move_dist = 0;
 		gs->move_dx = 0;
 		gs->move_dy = 0;
 		gs->move_type = GS_SWIPE4;
-		gs->move_wait = hs->evtime + cfg->gesture_wait;
+		gs->move_wait = time + cfg->gesture_wait;
 		gs->move_dist += ABSVAL(dist);
-		gs->move_speed = SPEED(gs->move_dist, hs->deltat);
+		gs->move_speed = SPEED(gs->move_dist, deltat);
 		gs->move_dir = dir;
 		
 		if (cfg->swipe4_dist > 0 && gs->move_dist >= cfg->swipe4_dist) {
 			gs->move_dist = MODVAL(gs->move_dist, cfg->swipe4_dist);
 			if (dir == TR_DIR_UP)
-				trigger_button_click(gs, cfg->swipe4_up_btn - 1, hs->evtime + cfg->gesture_hold);
+				trigger_button_click(gs, cfg->swipe4_up_btn - 1, time + cfg->gesture_hold);
 			else if (dir == TR_DIR_DN)
-				trigger_button_click(gs, cfg->swipe4_dn_btn - 1, hs->evtime + cfg->gesture_hold);
+				trigger_button_click(gs, cfg->swipe4_dn_btn - 1, time + cfg->gesture_hold);
 			else if (dir == TR_DIR_LT)
-				trigger_button_click(gs, cfg->swipe4_lt_btn - 1, hs->evtime + cfg->gesture_hold);
+				trigger_button_click(gs, cfg->swipe4_lt_btn - 1, time + cfg->gesture_hold);
 			else if (dir == TR_DIR_RT)
-				trigger_button_click(gs, cfg->swipe4_rt_btn - 1, hs->evtime + cfg->gesture_hold);
+				trigger_button_click(gs, cfg->swipe4_rt_btn - 1, time + cfg->gesture_hold);
 		}
 #ifdef DEBUG_GESTURES
 		xf86Msg(X_INFO, "trigger_swipe4: swiping %+d in direction %d (at %d of %d)\n", dist, dir, gs->move_dist, cfg->swipe_dist);
@@ -518,10 +525,10 @@ static void trigger_swipe4(struct Gestures* gs,
 
 static void trigger_scale(struct Gestures* gs,
 			const struct MConfig* cfg,
-			const struct HWState* hs,
+			const mstime_t time,
 			int dist, int dir)
 {
-	if (gs->move_type == GS_SCALE || hs->evtime >= gs->move_wait) {
+	if (gs->move_type == GS_SCALE || time >= gs->move_wait) {
 		int scale_dist_sqr = SQRVAL(cfg->scale_dist);
 		trigger_drag_stop(gs, 1);
 		if (gs->move_type != GS_SCALE || gs->move_dir != dir)
@@ -529,15 +536,15 @@ static void trigger_scale(struct Gestures* gs,
 		gs->move_dx = 0;
 		gs->move_dy = 0;
 		gs->move_type = GS_SCALE;
-		gs->move_wait = hs->evtime + cfg->gesture_wait;
+		gs->move_wait = time + cfg->gesture_wait;
 		gs->move_dist += ABSVAL(dist);
 		gs->move_dir = dir;
 		if (gs->move_dist >= scale_dist_sqr) {
 			gs->move_dist = MODVAL(gs->move_dist, scale_dist_sqr);
 			if (dir == TR_DIR_UP)
-				trigger_button_click(gs, cfg->scale_up_btn - 1, hs->evtime + cfg->gesture_hold);
+				trigger_button_click(gs, cfg->scale_up_btn - 1, time + cfg->gesture_hold);
 			else if (dir == TR_DIR_DN)
-				trigger_button_click(gs, cfg->scale_dn_btn - 1, hs->evtime + cfg->gesture_hold);
+				trigger_button_click(gs, cfg->scale_dn_btn - 1, time + cfg->gesture_hold);
 		}
 #ifdef DEBUG_GESTURES
 		xf86Msg(X_INFO, "trigger_scale: scaling %+d in direction %d (at %d of %d)\n", dist, dir, gs->move_dist, scale_dist_sqr);
@@ -547,10 +554,10 @@ static void trigger_scale(struct Gestures* gs,
 
 static void trigger_rotate(struct Gestures* gs,
 			const struct MConfig* cfg,
-			const struct HWState* hs,
+			const mstime_t time,
 			int dist, int dir)
 {
-	if (gs->move_type == GS_ROTATE || hs->evtime >= gs->move_wait) {
+	if (gs->move_type == GS_ROTATE || time >= gs->move_wait) {
 		int rotate_dist_sqr = SQRVAL(cfg->rotate_dist);
 		trigger_drag_stop(gs, 1);
 		if (gs->move_type != GS_ROTATE || gs->move_dir != dir)
@@ -558,15 +565,15 @@ static void trigger_rotate(struct Gestures* gs,
 		gs->move_dx = 0;
 		gs->move_dy = 0;
 		gs->move_type = GS_ROTATE;
-		gs->move_wait = hs->evtime + cfg->gesture_wait;
+		gs->move_wait = time + cfg->gesture_wait;
 		gs->move_dist += ABSVAL(dist);
 		gs->move_dir = dir;
 		if (gs->move_dist >= rotate_dist_sqr) {
 			gs->move_dist = MODVAL(gs->move_dist, rotate_dist_sqr);
 			if (dir == TR_DIR_LT)
-				trigger_button_click(gs, cfg->rotate_lt_btn - 1, hs->evtime + cfg->gesture_hold);
+				trigger_button_click(gs, cfg->rotate_lt_btn - 1, time + cfg->gesture_hold);
 			else if (dir == TR_DIR_RT)
-				trigger_button_click(gs, cfg->rotate_rt_btn - 1, hs->evtime + cfg->gesture_hold);
+				trigger_button_click(gs, cfg->rotate_rt_btn - 1, time + cfg->gesture_hold);
 		}
 #ifdef DEBUG_GESTURES
 		xf86Msg(X_INFO, "trigger_rotate: rotating %+d in direction %d (at %d of %d)\n", dist, dir, gs->move_dist, rotate_dist_sqr);
@@ -647,16 +654,18 @@ static int get_swipe4_dir(const struct Touch* t1,
 	return TR_NONE;
 }
 
-static void moving_update(struct Gestures* gs,
-			const struct MConfig* cfg,
-			const struct HWState* hs,
-			struct MTState* ms)
+static void moving_update(struct MTouch* mt)
 {
 	int i, count, btn_count, dx, dy, dist, dir;
 	struct Touch* touches[4];
 	count = btn_count = 0;
 	dx = dy = 0;
 	dir = 0;
+
+	struct Gestures* gs = &mt->gs;
+	struct MConfig* cfg = &mt->cfg;
+	struct HWState* hs = &mt->hs;
+	struct MTState* ms = &mt->ms;
 
 	// Reset movement.
 	gs->move_dx = 0;
@@ -680,14 +689,14 @@ static void moving_update(struct Gestures* gs,
 	// Determine gesture type.
 	if (count == 0) {
 		if (btn_count >= 1 && cfg->trackpad_disable < 2)
-			trigger_move(gs, cfg, hs, dx, dy);
-		else if (btn_count < 1 && !trigger_decel(gs, cfg, hs))
+			trigger_move(gs, cfg, mt->time, dx, dy);
+		else if (btn_count < 1 && !trigger_decel(gs, cfg, mt->time))
 			trigger_reset(gs);
 	}
 	else if (count == 1 && cfg->trackpad_disable < 2) {
 		dx += touches[0]->dx;
 		dy += touches[0]->dy;
-		trigger_move(gs, cfg, hs, dx, dy);
+		trigger_move(gs, cfg, mt->time, dx, dy);
 	}
 	else if (count == 2 && cfg->trackpad_disable < 1) {
 		// scroll, scale, or rotate
@@ -696,15 +705,15 @@ static void moving_update(struct Gestures* gs,
 				dist = touches[0]->dx + touches[1]->dx;
 			else
 				dist = touches[0]->dy + touches[1]->dy;
-			trigger_scroll(gs, cfg, hs, dist/2, dir);
+			trigger_scroll(gs, cfg, mt->time, hs->deltat, dist/2, dir);
 		}
 		else if ((dir = get_rotate_dir(touches[0], touches[1])) != TR_NONE) {
 			dist = dist2(touches[0]->dx, touches[0]->dy) + dist2(touches[1]->dx, touches[1]->dy);
-			trigger_rotate(gs, cfg, hs, dist/2, dir);
+			trigger_rotate(gs, cfg, mt->time, dist/2, dir);
 		}
 		else if ((dir = get_scale_dir(touches[0], touches[1])) != TR_NONE) {
 			dist = dist2(touches[0]->dx, touches[0]->dy) + dist2(touches[1]->dx, touches[1]->dy);
-			trigger_scale(gs, cfg, hs, dist/2, dir);
+			trigger_scale(gs, cfg, mt->time, hs->deltat, dist/2, dir);
 		}
 	}
 	else if (count == 3 && cfg->trackpad_disable < 1) {
@@ -713,7 +722,7 @@ static void moving_update(struct Gestures* gs,
 				dist = touches[0]->dx + touches[1]->dx + touches[2]->dx;
 			else
 				dist = touches[0]->dy + touches[1]->dy + touches[2]->dy;
-			trigger_swipe3(gs, cfg, hs, dist/3, dir);
+			trigger_swipe3(gs, cfg, mt->time, hs->deltat, dist/3, dir);
 		}
 	}
 	else if (count == 4 && cfg->trackpad_disable < 1) {
@@ -722,24 +731,23 @@ static void moving_update(struct Gestures* gs,
 				dist = touches[0]->dx + touches[1]->dx + touches[2]->dx + touches[3]->dx;
 			else
 				dist = touches[0]->dy + touches[1]->dy + touches[2]->dy + touches[2]->dy;
-			trigger_swipe4(gs, cfg, hs, dist/4, dir);
+			trigger_swipe4(gs, cfg, mt->time, hs->deltat, dist/4, dir);
 		}
 	}
 }
 
-static void dragging_update(struct Gestures* gs,
-			const struct HWState* hs)
+static void dragging_update(struct MTouch* mt)
 {
-	if (gs->move_drag == GS_DRAG_READY && hs->evtime > gs->move_drag_expire) {
+	if (mt->gs.move_drag == GS_DRAG_READY && mt->time > mt->gs.move_drag_expire) {
 #ifdef DEBUG_GESTURES
 		xf86Msg(X_INFO, "dragging_update: drag expired\n");
 #endif
-		trigger_drag_stop(gs, 1);
+		trigger_drag_stop(&mt->gs, 1);
 	}
 }
 
 static int delayed_click_update(struct Gestures* gs,
-			const struct HWState* hs,
+			const mstime_t time,
 			int* delay_sleep)
 {
 	if (gs->delayed_click_button == -1) {
@@ -750,7 +758,7 @@ static int delayed_click_update(struct Gestures* gs,
 		return 0;
 	}
 
-	if (hs->evtime >= gs->delayed_click_wake) {
+	if (time >= gs->delayed_click_wake) {
 #ifdef DEBUG_GESTURES
 		xf86Msg(X_INFO, "delayed_click_update: %d delay expired, triggering up\n", gs->delayed_click_button);
 #endif
@@ -764,17 +772,18 @@ static int delayed_click_update(struct Gestures* gs,
 #ifdef DEBUG_GESTURES
 		xf86Msg(X_INFO, "delayed_click_update: in delay, not triggering\n");
 #endif
-		*delay_sleep = gs->delayed_click_wake - hs->evtime;
+		*delay_sleep = gs->delayed_click_wake - time;
 	}
 	return 1;
 }
 
-static int delayed_decel_update(struct Gestures* gs,
-			const struct MConfig* cfg,
-			const struct HWState* hs,
-			const struct MTState* ms,
+static int delayed_decel_update(struct MTouch* mt,
 			int* delay_sleep)
 {
+	struct MConfig* cfg = &mt->cfg;	
+	struct HWState* hs = &mt->hs;
+	struct MTState* ms = &mt->ms;
+
 	if (gs->delayed_decel_speed == 0) {
 #ifdef DEBUG_GESTURES
 		xf86Msg(X_INFO, "delayed_decel_update: no speed, skipping\n");
@@ -783,7 +792,7 @@ static int delayed_decel_update(struct Gestures* gs,
 		return 0;
 	}
 
-	if (hs->evtime >= gs->delayed_decel_wake) {
+	if (mt->time >= gs->delayed_decel_wake) {
 #ifdef DEBUG_GESTURES
 		xf86Msg(X_INFO, "delayed_decel_update: delay expired, decelerating from\n", gs->delayed_decel_speed);
 #endif
@@ -817,28 +826,29 @@ static int delayed_decel_update(struct Gestures* gs,
 #endif
 
 			if (gs->move_type == GS_SCROLL)
-				trigger_scroll(gs, cfg, hs, gs->delayed_decel_speed, gs->move_dir);
+				trigger_scroll(gs, cfg, mt->time, hs->deltat, gs->delayed_decel_speed, gs->move_dir);
 			if (gs->move_type == GS_SWIPE3)
-				trigger_swipe3(gs, cfg, hs, gs->delayed_decel_speed, gs->move_dir);
+				trigger_swipe3(gs, cfg, mt->time, hs->deltat, gs->delayed_decel_speed, gs->move_dir);
 			if (gs->move_type == GS_SWIPE4)
-				trigger_swipe4(gs, cfg, hs, gs->delayed_decel_speed, gs->move_dir);
+				trigger_swipe4(gs, cfg, mt->time, hs->deltat, gs->delayed_decel_speed, gs->move_dir);
 
-			gs->delayed_decel_wake = hs->evtime + GS_DECEL_TICK;
+			gs->delayed_decel_wake = mt->time + GS_DECEL_TICK;
 		}
 	}
 
-	*delay_sleep = gs->delayed_decel_wake - hs->evtime;
+	*delay_sleep = gs->delayed_decel_wake - mt->time;
 	return 1;
 }
 
-static int delayed_update(struct Gestures* gs,
-			const struct MConfig* cfg,
-			const struct HWState* hs,
-			const struct MTState* ms)
+static int delayed_update(struct MTouch* mt)
 {
+	struct MConfig* cfg = &mt->cfg;
+	struct HWState* hs = &mt->hs;
+	struct MTState* ms = &mt->ms;
+
 	int click, decel, click_res, decel_res;
-	click_res = delayed_click_update(gs, hs, &click);
-	decel_res = delayed_decel_update(gs, cfg, hs, ms, &decel);
+	click_res = delayed_click_update(gs, mt->time, &click);
+	decel_res = delayed_decel_update(mt, &decel);
 
 	if (click == -1)
 		gs->delayed_sleep = decel;
@@ -866,11 +876,11 @@ void gestures_init(struct MTouch* mt)
 
 void gestures_extract(struct MTouch* mt)
 {
-	dragging_update(&mt->gs, &mt->hs);
-	buttons_update(&mt->gs, &mt->cfg, &mt->hs, &mt->ms);
-	tapping_update(&mt->gs, &mt->cfg, &mt->hs, &mt->ms);
-	moving_update(&mt->gs, &mt->cfg, &mt->hs, &mt->ms);
-	delayed_update(&mt->gs, &mt->cfg, &mt->hs, &mt->ms);
+	dragging_update(mt);
+	buttons_update(mt);
+	tapping_update(mt);
+	moving_update(mt);
+	delayed_update(mt);
 }
 
 int gestures_delayed(struct MTouch* mt)
@@ -879,7 +889,7 @@ int gestures_delayed(struct MTouch* mt)
 #ifdef DEBUG_GESTURES
 	xf86Msg(X_INFO, "gestures_delayed: calling delayed_update, delayed sleep was %d\n", mt->gs.delayed_sleep);
 #endif
-		return delayed_update(&mt->gs, &mt->cfg, &mt->hs, &mt->ms);
+		return delayed_update(mt);
 	}
 	else {
 #ifdef DEBUG_GESTURES
