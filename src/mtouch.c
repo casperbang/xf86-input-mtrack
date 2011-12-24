@@ -90,7 +90,7 @@ int mtouch_sleep(struct MTouch *mt, int ms)
 	return res;
 }
 
-int read_packet(struct MTouch *mt)
+int mtouch_read(struct MTouch *mt)
 {
 	int ret = hwstate_modify(&mt->hs, &mt->dev, mt->fd, &mt->caps);
 	if (ret <= 0)
@@ -101,7 +101,7 @@ int read_packet(struct MTouch *mt)
 	return 1;
 }
 
-int has_delayed(struct MTouch *mt)
+int mtouch_delayed(struct MTouch *mt)
 {
 	return gestures_delayed(&mt->gs, &mt->cfg, &mt->hs, &mt->state, &mt->dev, mt->fd);
 }

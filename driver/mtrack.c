@@ -223,10 +223,10 @@ static void read_input(LocalDevicePtr local)
 {
 	struct MTouch *mt = local->private;
 
-	while (read_packet(mt) > 0)
+	while (mtouch_read(mt) > 0)
 		handle_gestures(local, &mt->gs);
 
-	while (has_delayed(mt) != GS_DELAY_NONE) {
+	while (mtouch_delayed(mt) != GS_DELAY_NONE) {
 		handle_gestures(local, &mt->gs);
 #ifdef DEBUG_DRIVER
 		xf86Msg(X_INFO, "read_input: has_delayed processing\n");

@@ -48,7 +48,7 @@ int mtouch_close(struct MTouch *mt);
 int mtouch_ready(struct MTouch *mt);
 int mtouch_sleep(struct MTouch *mt, int ms);
 
-int read_packet(struct MTouch *mt);
-int has_delayed(struct MTouch *mt);
+int mtouch_read(struct MTouch *mt);
+int mtouch_delayed(struct MTouch *mt);
 
 #endif
