@@ -95,6 +95,7 @@ int mtouch_read(struct MTouch *mt)
 	int ret = hwstate_modify(&mt->hs, &mt->dev, mt->fd, &mt->caps);
 	if (ret <= 0)
 		return ret;
+	mt->delta = mt->hs.evtime - mt->time;
 	mt->time = mt->hs.evtime;
 	mtstate_extract(&mt->state, &mt->cfg, &mt->hs, &mt->caps);
 	gestures_extract(mt);

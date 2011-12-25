@@ -33,6 +33,7 @@
 struct MTouch {
 	int fd;
 	mstime_t time;
+	mstime_t delta;
 	struct mtdev dev;
 	struct Capabilities caps;
 	struct HWState hs;
