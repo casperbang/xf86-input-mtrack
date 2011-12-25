@@ -26,6 +26,7 @@
  **************************************************************************/
 
 #include "gestures.h"
+#include "mtouch.h"
 #include "trig.h"
 #include <poll.h>
 
@@ -445,7 +446,7 @@ static void trigger_reset(struct Gestures* gs)
 static void buttons_update(struct MTouch* mt)
 {
 	struct MConfig* cfg = &mt->cfg;
-	struct MTState* ms = &mt->ms;
+	struct MTState* ms = &mt->state;
 
 	if (!cfg->button_enable || cfg->trackpad_disable >= 3)
 		return;
@@ -554,7 +555,7 @@ static void tapping_update(struct MTouch* mt)
 
 	struct Gestures* gs = &mt->gs;
 	struct MConfig* cfg = &mt->cfg;
-	struct MTState* ms = &mt->ms;
+	struct MTState* ms = &mt->state;
 
 	if (cfg->trackpad_disable >= 1)
 		return;
@@ -661,7 +662,7 @@ static void moving_update(struct MTouch* mt)
 
 	struct Gestures* gs = &mt->gs;
 	struct MConfig* cfg = &mt->cfg;
-	struct MTState* ms = &mt->ms;
+	struct MTState* ms = &mt->state;
 
 	// Reset movement.
 	gs->move_dx = 0;
@@ -709,7 +710,7 @@ static void moving_update(struct MTouch* mt)
 		}
 		else if ((dir = get_scale_dir(touches[0], touches[1])) != TR_NONE) {
 			dist = dist2(touches[0]->dx, touches[0]->dy) + dist2(touches[1]->dx, touches[1]->dy);
-			trigger_scale(gs, cfg, mt->time, mt->delta, dist/2, dir);
+			trigger_scale(gs, cfg, mt->time, dist/2, dir);
 		}
 	}
 	else if (count == 3 && cfg->trackpad_disable < 1) {
@@ -776,8 +777,9 @@ static int delayed_click_update(struct Gestures* gs,
 static int delayed_decel_update(struct MTouch* mt,
 			int* delay_sleep)
 {
-	struct MConfig* cfg = &mt->cfg;	
-	struct MTState* ms = &mt->ms;
+	struct Gestures* gs = &mt->gs;
+	struct MConfig* cfg = &mt->cfg;
+	struct MTState* ms = &mt->state;
 
 	if (gs->delayed_decel_speed == 0) {
 #ifdef DEBUG_GESTURES
@@ -837,6 +839,8 @@ static int delayed_decel_update(struct MTouch* mt,
 
 static int delayed_update(struct MTouch* mt)
 {
+	struct Gestures* gs = &mt->gs;
+
 	int click, decel, click_res, decel_res;
 	click_res = delayed_click_update(gs, mt->time, &click);
 	decel_res = delayed_decel_update(mt, &decel);
@@ -876,7 +880,7 @@ void gestures_extract(struct MTouch* mt)
 
 int gestures_delayed(struct MTouch* mt)
 {
-	if (mt->gs.delayed_sleep == -1 || (!mtouch_ready(mt) && mtouch_sleep(mt, gs->delayed_sleep))) {
+	if (mt->gs.delayed_sleep == -1 || (!mtouch_ready(mt) && mtouch_sleep(mt, mt->gs.delayed_sleep))) {
 #ifdef DEBUG_GESTURES
 		xf86Msg(X_INFO, "gestures_delayed: calling delayed_update, delayed sleep was %d\n", mt->gs.delayed_sleep);
 #endif

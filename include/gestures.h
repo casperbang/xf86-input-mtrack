@@ -23,6 +23,8 @@
 #ifndef GESTURES_H
 #define GESTURES_H
 
+struct MTouch;
+
 #include "common.h"
 #include "mconfig.h"
 #include "hwstate.h"

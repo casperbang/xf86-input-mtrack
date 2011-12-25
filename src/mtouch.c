@@ -45,7 +45,7 @@ int mtouch_open(struct MTouch *mt, int fd)
 {
 	int ret;
 	mt->fd = fd;
-	ret = mtdev_open(mt->dev, mt->fd);
+	ret = mtdev_open(&mt->dev, mt->fd);
 	if (ret)
 		goto error;
 	mconfig_init(&mt->cfg, &mt->caps);

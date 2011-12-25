@@ -132,9 +132,10 @@ static int touch_append(struct MTState* ms,
 			const struct Capabilities* caps,
 			int finger)
 {
-	struct FingerState* fs = &hs->data[finger];
 	int x, y;
 	int n = firstbit(~ms->touch_used);
+	const struct FingerState* fs = &hs->data[finger];
+
 	if (n < 0)
 		xf86Msg(X_WARNING, "Too many touches to track. Ignoring touch %d.\n", fs->tracking_id);
 	else {
