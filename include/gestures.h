@@ -30,7 +30,7 @@ struct MTouch;
 #include "hwstate.h"
 #include "mtstate.h"
 
-#define GS_DECEL_TICK 100
+#define GS_DECEL_TICK 10
 
 #define GS_TAP 0
 #define GS_BUTTON 1

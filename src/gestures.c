@@ -31,7 +31,7 @@
 #include <poll.h>
 
 #define IS_VALID_BUTTON(x) (x >= 0 && x <= 31)
-#define SPEED(d, t) ((t) == 0 ? 0 : ((double)(d))/((double)(t)))
+#define SPEED(d, t) ((t) == 0 ? (double)(d) : ((double)(d))/((double)(t)))
 
 static int get_scroll_dir(const struct Touch* t1,
 			const struct Touch* t2)
@@ -257,12 +257,13 @@ static int trigger_decel(struct Gestures* gs,
 			gs->move_speed >= cfg->swipe4_coast_speed && cfg->swipe4_coast_decel > 0)) {
 		gs->delayed_decel_wake = time + GS_DECEL_TICK;
 		gs->delayed_decel_speed = gs->move_speed;
-#ifdef DEBUG_GESTURE
-		xf86Msg(X_INFO, "trigger_decel: starting decel at speed %d\n", gs->delayed_decel_speed);
+#ifdef DEBUG_GESTURES
+		xf86Msg(X_INFO, "trigger_decel: starting decel at speed (%d) waking (%d, %llu, %llu)\n",
+			gs->delayed_decel_speed, GS_DECEL_TICK, gs->delayed_decel_wake, time);
 #endif
 		return 1;
 	}
-#ifdef DEBUG_GESTURE
+#ifdef DEBUG_GESTURES
 	else
 		xf86Msg(X_INFO, "trigger_decel: skipping decel at speed %d\n", gs->delayed_decel_speed);
 #endif
@@ -284,7 +285,7 @@ static void trigger_scroll(struct Gestures* gs,
 		gs->move_type = GS_SCROLL;
 		gs->move_wait = time + cfg->gesture_wait;
 		gs->move_dist += ABSVAL(dist);
-		gs->move_speed = SPEED(gs->move_dist, delta);
+		gs->move_speed = SPEED(ABSVAL(dist), delta);
 		gs->move_dir = dir;
 		if (gs->move_dist >= cfg->scroll_dist) {
 			gs->move_dist = MODVAL(gs->move_dist, cfg->scroll_dist);
@@ -296,9 +297,16 @@ static void trigger_scroll(struct Gestures* gs,
 				trigger_button_click(gs, cfg->scroll_lt_btn - 1, time + cfg->gesture_hold);
 			else if (dir == TR_DIR_RT)
 				trigger_button_click(gs, cfg->scroll_rt_btn - 1, time + cfg->gesture_hold);
+#ifdef DEBUG_GESTURES
+			xf86Msg(X_INFO, "trigger_scroll: scrolling %+d in direction %d (at %d of %d) with speed %d (%d, %llu) with button\n",
+				dist, dir, gs->move_dist, cfg->scroll_dist, gs->move_speed, ABSVAL(dist), delta);
+#endif
 		}
 #ifdef DEBUG_GESTURES
-		xf86Msg(X_INFO, "trigger_scroll: scrolling %+d in direction %d (at %d of %d)\n", dist, dir, gs->move_dist, cfg->scroll_dist);
+		else {
+			xf86Msg(X_INFO, "trigger_scroll: scrolling %+d in direction %d (at %d of %d) with speed %d (%d, %llu)\n",
+				dist, dir, gs->move_dist, cfg->scroll_dist, gs->move_speed, ABSVAL(dist), delta);
+		}
 #endif
 	}
 }
@@ -318,7 +326,7 @@ static void trigger_swipe3(struct Gestures* gs,
 		gs->move_type = GS_SWIPE3;
 		gs->move_wait = time + cfg->gesture_wait;
 		gs->move_dist += ABSVAL(dist);
-		gs->move_speed = SPEED(gs->move_dist, delta);
+		gs->move_speed = SPEED(ABSVAL(dist), delta);
 		gs->move_dir = dir;
 
 		if (cfg->swipe_dist > 0 && gs->move_dist >= cfg->swipe_dist) {
@@ -353,7 +361,7 @@ static void trigger_swipe4(struct Gestures* gs,
 		gs->move_type = GS_SWIPE4;
 		gs->move_wait = time + cfg->gesture_wait;
 		gs->move_dist += ABSVAL(dist);
-		gs->move_speed = SPEED(gs->move_dist, delta);
+		gs->move_speed = SPEED(ABSVAL(dist), delta);
 		gs->move_dir = dir;
 		
 		if (cfg->swipe4_dist > 0 && gs->move_dist >= cfg->swipe4_dist) {
@@ -685,10 +693,24 @@ static void moving_update(struct MTouch* mt)
 
 	// Determine gesture type.
 	if (count == 0) {
-		if (btn_count >= 1 && cfg->trackpad_disable < 2)
+		if (btn_count >= 1 && cfg->trackpad_disable < 2) {
+#ifdef DEBUG_GESTURES
+			xf86Msg(X_INFO, "moving_update: trigger_move (%d, %d)\n", dx, dy);
+#endif
 			trigger_move(gs, cfg, mt->time, dx, dy);
-		else if (btn_count < 1 && !trigger_decel(gs, cfg, mt->time))
-			trigger_reset(gs);
+		}
+		else if (btn_count < 1) {
+			int res = trigger_decel(gs, cfg, mt->time);
+#ifdef DEBUG_GESTURES
+			xf86Msg(X_INFO, "moving_update: trigger_decel (%d)\n", res);
+#endif
+			if (!res) {
+#ifdef DEBUG_GESTURES
+				xf86Msg(X_INFO, "moving_update: trigger_reset\n");
+#endif
+				trigger_reset(gs);
+			}
+		}
 	}
 	else if (count == 1 && cfg->trackpad_disable < 2) {
 		dx += touches[0]->dx;
@@ -791,7 +813,7 @@ static int delayed_decel_update(struct MTouch* mt,
 
 	if (mt->time >= gs->delayed_decel_wake) {
 #ifdef DEBUG_GESTURES
-		xf86Msg(X_INFO, "delayed_decel_update: delay expired, decelerating from\n", gs->delayed_decel_speed);
+		xf86Msg(X_INFO, "delayed_decel_update: delay expired, decelerating from %d\n", gs->delayed_decel_speed);
 #endif
 		int i, stop = 0;
 		foreach_bit(i, ms->touch_used) {
@@ -810,7 +832,7 @@ static int delayed_decel_update(struct MTouch* mt,
 
 		if (stop || gs->delayed_decel_hwbutton != mt->hs.button || gs->delayed_decel_speed <= 0) {
 #ifdef DEBUG_GESTURES
-			xf86Msg(X_INFO, "delayed_decel_update: speed is zero, stopping decel\n");
+			xf86Msg(X_INFO, "delayed_decel_update: speed is zero, stopping decel at speed %d\n", gs->delayed_decel_speed);
 #endif
 			gs->delayed_decel_wake = 0;
 			gs->delayed_decel_speed = 0;

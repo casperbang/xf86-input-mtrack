@@ -35,7 +35,10 @@ static double trig_quadrant_angle(int quadrant, double dx, double dy) {
 		return dy < dx ? 2-dy/dx : dx/dy;
 }
 
-int trig_quadrant(double dx, double dy)
+/* Determine in which quadrant a point lies. Counts from 0. Returns
+ * TR_NONE if the point lies at the origin.
+ */
+static int trig_quadrant(double dx, double dy)
 {
 	if (dx > 0 && dy < 0)
 		return 0;

@@ -229,11 +229,11 @@ static void read_input(LocalDevicePtr local)
 	while (mtouch_delayed(mt) != GS_DELAY_NONE) {
 		handle_gestures(local, &mt->gs);
 #ifdef DEBUG_DRIVER
-		xf86Msg(X_INFO, "read_input: has_delayed processing\n");
+		xf86Msg(X_INFO, "read_input: mtouch_delayed processing\n");
 #endif
 	}
 #ifdef DEBUG_DRIVER
-		xf86Msg(X_INFO, "read_input: complete %d\n");
+	xf86Msg(X_INFO, "read_input: complete\n");
 #endif
 }
 
